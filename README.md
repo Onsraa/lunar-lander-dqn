@@ -4,21 +4,6 @@
 
 (plus tard à l'aide)
 
-### 2. Hyperparamètres
-
-| Paramètre | Avant | Après | Pourquoi |
-|-----------|-------|-------|----------|
-| `epsilon_decay` | 100000 | **5000** | Exploration trop longue |
-| `fps` | 240 | **60** | Trop de steps inutiles |
-| `max_time` | 60s | **30s** | Force l'agent à agir |
-| Actions | 6 | **4** | Plus simple |
-
-### 3. Simplifications
-
-- État: 8 → **6 dimensions** (suppression de dx/dy redondants)
-- Réseau: 3 couches → **2 couches** (suffisant)
-- Code: suppression de Dueling DQN et PER (non nécessaires)
-
 ## 📁 Structure
 
 ```
