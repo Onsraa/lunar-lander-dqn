@@ -24,21 +24,21 @@ lunar_lander_fix/
 ## 🚀 Utilisation
 
 ```bash
-# Installation
-pip install -r requirements.txt
-
-# Entraînement (~5-10 min)
+# Base (sans contrainte)
 python train.py
 
-# Avec visualisation
-python train.py --render
+# Avec carburant limité
+python train.py --fuel
 
-# Visualiser l'agent entraîné
-python play.py
+# Avec carburant réduit (plus difficile)
+python train.py --fuel --max-fuel 50
 
-# Mode manuel
-python play.py --manual
-```
+# Avec temps réduit
+python train.py --time 20
+
+# Combiné (très difficile!)
+python train.py --fuel --max-fuel 50 --time 15
+``` 
 
 ## 🎮 Contrôles (mode manuel)
 

@@ -30,12 +30,12 @@ class DQNTrainer:
         gamma: float = 0.99,
         epsilon_start: float = 1.0,
         epsilon_end: float = 0.01,
-        epsilon_decay: float = 5000,      # Réduit! (était 100000)
+        epsilon_decay: float = 5000,
         batch_size: int = 64,
         buffer_size: int = 50000,
         target_update: int = 100,
         hidden_dims: Tuple[int, ...] = (128, 128),
-        save_dir: str = "models",
+        save_dir: str = "models/base",
     ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device: {self.device}")
@@ -96,10 +96,8 @@ class DQNTrainer:
         next_states = next_states.to(self.device)
         dones = dones.to(self.device)
 
-        # Q(s, a)
         q_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        # max Q'(s', a')
         with torch.no_grad():
             next_q = self.target_net(next_states).max(dim=1)[0]
             targets = rewards + self.gamma * next_q * (~dones).float()
@@ -195,8 +193,7 @@ class DQNTrainer:
         }, os.path.join(self.save_dir, filename))
 
     def load_checkpoint(self, filename: str):
-        path = os.path.join(self.save_dir, filename)
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = torch.load(filename, map_location=self.device, weights_only=False)
         self.policy_net.load_state_dict(checkpoint['policy_net_state'])
         self.target_net.load_state_dict(checkpoint['target_net_state'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state'])

@@ -1,16 +1,20 @@
-"""
-Lunar Lander - Rendu Pygame (Simplifié)
-=======================================
-"""
-
 import pygame
 import math
 import random
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from dataclasses import dataclass
 
 from .lander import Lander
 from .environment import LunarLanderEnv
+
+
+# Initialiser freetype séparément (compatible Python 3.14)
+FREETYPE_AVAILABLE = False
+try:
+    import pygame.freetype
+    FREETYPE_AVAILABLE = True
+except ImportError:
+    pass
 
 
 @dataclass
@@ -34,16 +38,16 @@ class ParticleSystem:
             return
 
         num = int(power * 8) if is_main else int(power * 4)
-        
+
         for _ in range(num):
             spread = random.uniform(-0.2, 0.2)
             speed = random.uniform(150, 250) * power
-            
+
             vx = -math.sin(angle + spread) * speed
             vy = math.cos(angle + spread) * speed
-            
+
             color = (255, random.randint(100, 200), random.randint(0, 50))
-            
+
             self.particles.append(Particle(
                 x=x + random.uniform(-2, 2),
                 y=y + random.uniform(-2, 2),
@@ -65,7 +69,7 @@ class ParticleSystem:
         for p in self.particles:
             alpha = int(255 * max(0, p.life))
             size = max(1, int(p.size))
-            
+
             surf = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
             pygame.draw.circle(surf, (*p.color, alpha), (size, size), size)
             screen.blit(surf, (int(p.x - size), int(p.y - size)))
@@ -79,11 +83,12 @@ class Renderer:
     BLACK = (0, 0, 0)
     WHITE = (255, 255, 255)
     GRAY = (100, 100, 100)
-    DARK_GRAY = (50, 50, 50)
+    DARK_GRAY = (40, 40, 40)
     GREEN = (0, 255, 0)
     RED = (255, 0, 0)
     YELLOW = (255, 255, 0)
     ORANGE = (255, 150, 0)
+    CYAN = (0, 200, 255)
 
     def __init__(self, width: int = 800, height: int = 600):
         self.width = width
@@ -93,6 +98,7 @@ class Renderer:
         self.initialized = False
         self.particles = ParticleSystem()
         self.font = None
+        self.font_small = None
 
     def init(self):
         if self.initialized:
@@ -102,14 +108,41 @@ class Renderer:
         self.screen = pygame.display.set_mode((self.width, self.height))
         self.clock = pygame.time.Clock()
 
-        # Font optionnel (peut échouer sur Python 3.14)
-        try:
-            self.font = pygame.font.Font(None, 24)
-        except Exception:
-            self.font = None
-            print("Note: Font non disponible, HUD simplifié")
+        # Utiliser freetype (compatible Python 3.14)
+        if FREETYPE_AVAILABLE:
+            try:
+                pygame.freetype.init()
+                # Essayer plusieurs polices
+                for font_name in ['arial', 'helvetica', 'sans', None]:
+                    try:
+                        self.font = pygame.freetype.SysFont(font_name, 18)
+                        self.font_small = pygame.freetype.SysFont(font_name, 13)
+                        break
+                    except Exception:
+                        continue
+            except Exception:
+                self.font = None
+                self.font_small = None
 
         self.initialized = True
+
+    def _render_text(self, text: str, color: Tuple[int, int, int],
+                     pos: Tuple[int, int], font=None, center: bool = False):
+        """Render text using freetype."""
+        if font is None:
+            font = self.font
+        if font is None:
+            return
+
+        try:
+            surf, rect = font.render(text, color)
+            if center:
+                rect.center = pos
+            else:
+                rect.topleft = pos
+            self.screen.blit(surf, rect)
+        except Exception:
+            pass
 
     def close(self):
         if self.initialized:
@@ -120,14 +153,12 @@ class Renderer:
         if not self.initialized:
             self.init()
 
-        # Événements
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 return False
 
-        # Dessin
         self.screen.fill(self.BLACK)
         self._draw_stars()
         self._draw_ground()
@@ -145,7 +176,6 @@ class Renderer:
         return True
 
     def _draw_stars(self):
-        """Dessine quelques étoiles fixes."""
         random.seed(42)
         for _ in range(50):
             x = random.randint(0, self.width)
@@ -215,48 +245,187 @@ class Renderer:
         self.particles.update(dt)
 
     def _draw_hud(self, env: LunarLanderEnv, info: dict = None):
-        """HUD avec ou sans texte selon disponibilité du font."""
+        """HUD: Carburant à gauche, Réacteurs à droite, Info au centre."""
         if not env.lander:
             return
 
+        # ===== GAUCHE: Jauge de carburant (si activé) =====
+        if env.config.fuel_constraint:
+            self._draw_fuel_gauge(env)
+
+        # ===== DROITE: Barres de puissance des réacteurs =====
+        self._draw_thruster_bars(env.lander)
+
+        # ===== CENTRE: Vitesse, Angle, Temps =====
+        self._draw_info(env, info)
+
+        # ===== BAS: Indicateur d'atterrissage =====
+        self._draw_landing_indicator(env)
+
+    def _draw_fuel_gauge(self, env: LunarLanderEnv):
+        """Jauge de carburant verticale à gauche."""
+        x = 20
+        y = 50
+        width = 30
+        height = 150
+
+        fuel_pct = env.lander.fuel_ratio
+
+        # Couleur selon niveau
+        if fuel_pct > 0.3:
+            color = self.CYAN
+        elif fuel_pct > 0.1:
+            color = self.ORANGE
+        else:
+            color = self.RED
+
+        # Fond
+        pygame.draw.rect(self.screen, self.DARK_GRAY, (x, y, width, height))
+
+        # Niveau de carburant
+        fill_height = int(height * fuel_pct)
+        if fill_height > 0:
+            pygame.draw.rect(self.screen, color,
+                           (x, y + height - fill_height, width, fill_height))
+
+        # Bordure
+        pygame.draw.rect(self.screen, self.WHITE, (x, y, width, height), 2)
+
+        # Texte
+        self._render_text("FUEL", self.WHITE, (x + width // 2, y - 10), center=True)
+        self._render_text(f"{env.lander.fuel:.0f}", color,
+                         (x + width // 2, y + height + 8), self.font_small, center=True)
+
+    def _draw_thruster_bars(self, lander: Lander):
+        """3 barres de puissance des réacteurs à droite."""
+        base_x = self.width - 90
+        base_y = 50
+
+        side_width = 18
+        side_height = 100
+        main_width = 28
+        main_height = 130
+        spacing = 8
+
+        left_x = base_x
+        main_x = left_x + side_width + spacing
+        right_x = main_x + main_width + spacing
+
+        main_y = base_y
+        side_y = base_y + (main_height - side_height) // 2
+
+        # Dessiner les 3 barres
+        self._draw_single_thruster_bar(
+            left_x, side_y, side_width, side_height,
+            lander.left_thruster, self.YELLOW, "L"
+        )
+
+        self._draw_single_thruster_bar(
+            main_x, main_y, main_width, main_height,
+            lander.main_thruster, self.ORANGE, "M"
+        )
+
+        self._draw_single_thruster_bar(
+            right_x, side_y, side_width, side_height,
+            lander.right_thruster, self.YELLOW, "R"
+        )
+
+        # Titre
+        total_width = right_x + side_width - left_x
+        self._render_text("THRUST", self.WHITE,
+                         (left_x + total_width // 2, base_y - 10), center=True)
+
+    def _draw_single_thruster_bar(self, x: int, y: int, width: int, height: int,
+                                   power: float, color: Tuple[int, int, int], label: str):
+        """Dessine une barre de puissance individuelle."""
+        # Fond
+        pygame.draw.rect(self.screen, self.DARK_GRAY, (x, y, width, height))
+
+        # Niveau de puissance
+        fill_height = int(height * power)
+        if fill_height > 0:
+            pygame.draw.rect(self.screen, color,
+                           (x, y + height - fill_height, width, fill_height))
+
+        # Bordure
+        border_color = color if power > 0 else self.GRAY
+        pygame.draw.rect(self.screen, border_color, (x, y, width, height), 2)
+
+        # Label
+        self._render_text(label, self.WHITE, (x + width // 2, y + height + 5),
+                         self.font_small, center=True)
+
+    def _draw_info(self, env: LunarLanderEnv, info: dict = None):
+        """Informations en haut au centre."""
+        speed = env.lander.get_speed()
+        angle_deg = math.degrees(env.lander.angle)
+
+        speed_ok = speed < env.config.max_landing_speed
+        angle_ok = abs(env.lander.angle) < env.config.max_landing_angle
+
+        speed_color = self.GREEN if speed_ok else self.RED
+        angle_color = self.GREEN if angle_ok else self.RED
+
+        center_x = self.width // 2
+        y = 15
+
+        self._render_text(f"Speed: {speed:.0f}", speed_color, (center_x - 100, y))
+        self._render_text(f"Angle: {angle_deg:.1f}°", angle_color, (center_x + 20, y))
+
+        time_left = env.config.max_time - env.time_elapsed
+        time_color = self.WHITE if time_left > 5 else self.RED
+        self._render_text(f"Time: {time_left:.1f}s", time_color, (center_x - 40, y + 22))
+
+    def _draw_landing_indicator(self, env: LunarLanderEnv):
+        """
+        Indicateur visuel d'état d'atterrissage en bas au centre.
+        Montre si vitesse, angle et position sont OK pour atterrir.
+        """
+        center_x = self.width // 2
+        y = self.height - 580
+
+        # Vérifier les conditions
         speed = env.lander.get_speed()
         angle = abs(env.lander.angle)
+        dist_to_platform = abs(env.lander.x - env.platform_x)
 
-        # Indicateur de vitesse (barre)
-        speed_pct = min(1.0, speed / env.config.max_landing_speed)
-        speed_color = self.GREEN if speed_pct < 1.0 else self.RED
-        pygame.draw.rect(self.screen, self.DARK_GRAY, (10, 10, 100, 15))
-        pygame.draw.rect(self.screen, speed_color, (10, 10, int(100 * speed_pct), 15))
-        pygame.draw.rect(self.screen, self.WHITE, (10, 10, 100, 15), 1)
+        speed_ok = speed < env.config.max_landing_speed
+        angle_ok = angle < env.config.max_landing_angle
+        position_ok = dist_to_platform < env.config.platform_width / 2
 
-        # Indicateur d'angle (barre)
-        angle_pct = min(1.0, angle / env.config.max_landing_angle)
-        angle_color = self.GREEN if angle_pct < 1.0 else self.RED
-        pygame.draw.rect(self.screen, self.DARK_GRAY, (10, 30, 100, 15))
-        pygame.draw.rect(self.screen, angle_color, (10, 30, int(100 * angle_pct), 15))
-        pygame.draw.rect(self.screen, self.WHITE, (10, 30, 100, 15), 1)
+        all_ok = speed_ok and angle_ok and position_ok
 
-        # Indicateur de temps
-        time_pct = env.time_elapsed / env.config.max_time
-        pygame.draw.rect(self.screen, self.DARK_GRAY, (10, 50, 100, 15))
-        pygame.draw.rect(self.screen, self.YELLOW, (10, 50, int(100 * time_pct), 15))
-        pygame.draw.rect(self.screen, self.WHITE, (10, 50, 100, 15), 1)
+        # Panneau de fond
+        panel_width = 200
+        panel_height = 55
+        panel_rect = (center_x - panel_width // 2, y, panel_width, panel_height)
 
-        # Texte si font disponible
-        if self.font:
-            text = self.font.render(f"Speed: {speed:.0f}", True, speed_color)
-            self.screen.blit(text, (115, 10))
+        bg_color = (0, 60, 0) if all_ok else (60, 0, 0)
+        pygame.draw.rect(self.screen, bg_color, panel_rect)
+        pygame.draw.rect(self.screen, self.WHITE, panel_rect, 2)
 
-            angle_deg = math.degrees(env.lander.angle)
-            text = self.font.render(f"Angle: {angle_deg:.1f}°", True, angle_color)
-            self.screen.blit(text, (115, 30))
+        # Titre
+        title = "READY TO LAND" if all_ok else "LANDING STATUS"
+        title_color = self.GREEN if all_ok else self.WHITE
+        self._render_text(title, title_color, (center_x, y + 12), center=True)
 
-            text = self.font.render(f"Time: {env.time_elapsed:.1f}s", True, self.WHITE)
-            self.screen.blit(text, (115, 50))
+        # 3 indicateurs (cercles)
+        indicator_y = y + 38
+        indicators = [
+            ("SPD", speed_ok, center_x - 60),
+            ("ANG", angle_ok, center_x),
+            ("POS", position_ok, center_x + 60),
+        ]
 
-            if info and 'reward' in info:
-                text = self.font.render(f"Reward: {info['reward']:.0f}", True, self.WHITE)
-                self.screen.blit(text, (self.width - 120, 10))
+        for label, ok, ix in indicators:
+            # Cercle coloré
+            color = self.GREEN if ok else self.RED
+            pygame.draw.circle(self.screen, color, (ix, indicator_y), 8)
+            pygame.draw.circle(self.screen, self.WHITE, (ix, indicator_y), 8, 1)
+
+            # Label au-dessus
+            self._render_text(label, self.WHITE, (ix, indicator_y - 16),
+                             self.font_small, center=True)
 
     def reset_particles(self):
         self.particles.clear()

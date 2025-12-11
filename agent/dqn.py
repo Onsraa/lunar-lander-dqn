@@ -9,7 +9,7 @@ from typing import Tuple
 
 
 class DQN(nn.Module):
-    """Réseau DQN simple avec 3 couches cachées."""
+    """Réseau DQN simple avec 2 couches cachées."""
     
     def __init__(self, state_dim: int, action_dim: int, 
                  hidden_dims: Tuple[int, ...] = (128, 128)):

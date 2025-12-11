@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Lunar Lander - Visualisation
-============================
+Lunar Lander - Visualisation (avec contraintes)
+===============================================
 
 Usage:
-    python play.py                          # Agent IA
-    python play.py --manual                 # Contrôle manuel
-    python play.py --model models/final.pt  # Modèle spécifique
+    python play.py                                    # Base
+    python play.py --model models/fuel_100/final_model.pt --fuel
+    python play.py --manual --fuel --max-fuel 50
 """
 
 import argparse
@@ -25,16 +25,31 @@ from agent import DQN
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Jouer à Lunar Lander')
-    parser.add_argument('--model', type=str, default='models/final_model.pt',
+    
+    # Modèle
+    parser.add_argument('--model', type=str, default='models/base/final_model.pt',
                         help='Chemin vers le modèle')
     parser.add_argument('--episodes', type=int, default=10,
                         help='Nombre d\'épisodes')
+    
+    # Mode
     parser.add_argument('--manual', action='store_true',
                         help='Mode manuel')
     parser.add_argument('--random', action='store_true',
                         help='Agent aléatoire')
+    
+    # Contraintes (doivent correspondre à l'entraînement!)
+    parser.add_argument('--fuel', action='store_true',
+                        help='Activer la contrainte de carburant')
+    parser.add_argument('--max-fuel', type=float, default=100.0,
+                        help='Quantité de carburant max (défaut: 100)')
+    parser.add_argument('--time', type=float, default=30.0,
+                        help='Temps maximum en secondes (défaut: 30)')
+    
+    # Affichage
     parser.add_argument('--fps', type=int, default=60,
                         help='FPS (défaut: 60)')
+    
     return parser.parse_args()
 
 
@@ -45,9 +60,9 @@ def get_manual_action() -> int:
     if keys[pygame.K_UP]:
         return 1  # MAIN
     elif keys[pygame.K_LEFT]:
-        return 2  # LEFT (tourne à droite pour aller à gauche)
+        return 2  # LEFT
     elif keys[pygame.K_RIGHT]:
-        return 3  # RIGHT (tourne à gauche pour aller à droite)
+        return 3  # RIGHT
     else:
         return 0  # NOP
 
@@ -83,34 +98,62 @@ def play_episode(env, renderer, policy_net, mode='ai', fps=60):
     return {
         'reward': total_reward,
         'success': info.get('success', False),
-        'time': info.get('time_elapsed', 0)
+        'time': info.get('time_elapsed', 0),
+        'fuel': info.get('fuel', None),
+        'out_of_fuel': info.get('out_of_fuel', False),
     }
 
 
 def main():
     args = parse_args()
 
-    print("=" * 50)
+    print("=" * 55)
     print("       LUNAR LANDER - VISUALISATION")
-    print("=" * 50)
+    print("=" * 55)
+    print()
+    
+    # Afficher les contraintes
+    print("Contraintes:")
+    if args.fuel:
+        print(f"  ✓ Carburant: {args.max_fuel}")
+    else:
+        print("  ✗ Carburant: illimité")
+    print(f"  ✓ Temps max: {args.time}s")
     print()
 
-    env_config = EnvironmentConfig()
+    # Environnement avec mêmes contraintes que l'entraînement
+    env_config = EnvironmentConfig(
+        max_time=args.time,
+        fuel_constraint=args.fuel,
+        max_fuel=args.max_fuel,
+    )
     env = LunarLanderEnv(env_config)
 
     # Charger le modèle
     policy_net = None
     if not args.manual and not args.random:
         if not os.path.exists(args.model):
-            print(f"Modèle non trouvé: {args.model}")
-            print("Lancez d'abord: python train.py")
+            print(f"❌ Modèle non trouvé: {args.model}")
+            print("\nModèles disponibles:")
+            
+            # Lister les modèles disponibles
+            if os.path.exists("models"):
+                for folder in os.listdir("models"):
+                    model_path = os.path.join("models", folder, "final_model.pt")
+                    if os.path.exists(model_path):
+                        print(f"  - {model_path}")
+            
+            print("\nLancez d'abord l'entraînement avec les mêmes contraintes.")
             return
 
         print(f"Chargement: {args.model}")
+        
+        # Créer le réseau avec la bonne dimension d'état
         policy_net = DQN(env.observation_space_dim, env.action_space_dim)
-        checkpoint = torch.load(args.model, map_location='cpu')
+        checkpoint = torch.load(args.model, map_location='cpu', weights_only=False)
         policy_net.load_state_dict(checkpoint['policy_net_state'])
         policy_net.eval()
+        print(f"  - État dim: {env.observation_space_dim}")
 
     if args.manual:
         print("\nContrôles:")
@@ -118,6 +161,8 @@ def main():
         print("  ← : Tourner à droite")
         print("  → : Tourner à gauche")
         print("  ESC : Quitter")
+        if args.fuel:
+            print(f"\n⚠️  Attention: carburant limité à {args.max_fuel}!")
 
     print()
 
@@ -126,6 +171,7 @@ def main():
 
     mode = 'manual' if args.manual else ('random' if args.random else 'ai')
     successes = 0
+    out_of_fuel_count = 0
 
     try:
         for i in range(args.episodes):
@@ -136,16 +182,31 @@ def main():
             if result.get('aborted'):
                 break
             
-            status = "✓ Succès" if result['success'] else "✗ Échec"
-            print(f"{status} | Reward: {result['reward']:.0f}")
-            
+            # Status
             if result['success']:
+                status = "✓ Succès"
                 successes += 1
+            else:
+                status = "✗ Échec"
+            
+            # Info carburant
+            fuel_info = ""
+            if args.fuel:
+                if result.get('out_of_fuel'):
+                    fuel_info = " | ⛽ VIDE!"
+                    out_of_fuel_count += 1
+                elif result.get('fuel') is not None:
+                    fuel_info = f" | Fuel: {result['fuel']:.0f}"
+            
+            print(f"{status} | Reward: {result['reward']:.0f}{fuel_info}")
             
             time.sleep(0.5)
 
         print()
+        print("-" * 40)
         print(f"Résultat: {successes}/{args.episodes} succès ({100*successes/args.episodes:.0f}%)")
+        if args.fuel and out_of_fuel_count > 0:
+            print(f"À court de carburant: {out_of_fuel_count} fois")
 
     finally:
         renderer.close()
