@@ -10,12 +10,12 @@
 lunar_lander_fix/
 ├── game/
 │   ├── lander.py       # Physique
-│   ├── environment.py  # Env + Rewards (CORRIGÉ)
+│   ├── environment.py  # Env + Rewards 
 │   └── renderer.py     # Affichage
 ├── agent/
-│   ├── dqn.py          # Réseau simple
+│   ├── dqn.py          # Réseau de neurones simple
 │   ├── replay_buffer.py
-│   └── trainer.py      # Hyperparamètres (CORRIGÉS)
+│   └── trainer.py      # Hyperparamètres 
 ├── train.py            # Entraînement
 ├── play.py             # Visualisation
 └── requirements.txt
